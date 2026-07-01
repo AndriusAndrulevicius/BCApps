@@ -6,11 +6,14 @@ namespace Microsoft.eServices.EDocument;
 
 using Microsoft.eServices.EDocument.Processing.Import;
 using Microsoft.eServices.EDocument.Processing.Import.Purchase;
+using Microsoft.eServices.EDocument.Processing.Interfaces;
+using Microsoft.eServices.EDocument.Processing.Message;
 using Microsoft.Finance.GeneralLedger.Journal;
 using Microsoft.Finance.GeneralLedger.Ledger;
 using Microsoft.Foundation.Reporting;
 using Microsoft.Inventory.Location;
 using Microsoft.Inventory.Transfer;
+using Microsoft.Peppol.Response;
 using Microsoft.Purchases.Document;
 using Microsoft.Purchases.History;
 using Microsoft.Purchases.Vendor;
@@ -244,6 +247,12 @@ codeunit 6108 "E-Document Processing"
         PurchaseLine: Record "Purchase Line";
     begin
         case EDocument."Document Type" of
+            EDocument."Document Type"::"Sales Order":
+                begin
+                    SourceDocumentLines.Open(Database::"Sales Line");
+                    SourceDocumentLines.Field(1).SetFilter('%1|%2', "Sales Document Type"::Order, "Sales Document Type"::"Blanket Order");
+                    SourceDocumentLines.Field(2).SetRange(EDocument."Document No.");
+                end;
             EDocument."Document Type"::"Sales Invoice":
                 begin
                     SourceDocumentLines.Open(Database::"Sales Invoice Line");
@@ -742,6 +751,20 @@ codeunit 6108 "E-Document Processing"
                 end;
         end;
         exit(false);
+    end;
+
+    procedure SendOrderRejection(EDocument: Record "E-Document")
+    var
+        EDocMessageMgt: Codeunit "E-Doc. Message Mgt.";
+        ResponseBlob: Codeunit "Temp Blob";
+        IResponseBuilder: Interface IOrderResponseBuilder;
+    begin
+        EDocument.TestField(Direction, EDocument.Direction::Incoming);
+        IResponseBuilder := EDocument."Read into Draft Impl.";
+        if not IResponseBuilder.SupportsOrderResponse(EDocument) then
+            exit;
+        IResponseBuilder.BuildOrderResponse(EDocument, "E-Doc. Response Type"::Rejected, ResponseBlob);
+        EDocMessageMgt.CreateMessage(EDocument, "E-Document Message Type"::"PEPPOL Order Response", "E-Document Direction"::Outgoing, "E-Doc. Response Type"::Rejected, ResponseBlob);
     end;
 
     [IntegrationEvent(false, false)]

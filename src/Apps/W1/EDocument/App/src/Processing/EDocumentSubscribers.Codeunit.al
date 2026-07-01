@@ -10,6 +10,8 @@ using Microsoft.eServices.EDocument.OrderMatch;
 using Microsoft.EServices.EDocument.Processing;
 using Microsoft.eServices.EDocument.Processing.Import;
 using Microsoft.eServices.EDocument.Processing.Import.Purchase;
+using Microsoft.eServices.EDocument.Processing.Interfaces;
+using Microsoft.eServices.EDocument.Processing.Message;
 using Microsoft.eServices.EDocument.Service.Participant;
 using Microsoft.Finance.GeneralLedger.Journal;
 using Microsoft.Finance.GeneralLedger.Ledger;
@@ -17,6 +19,7 @@ using Microsoft.Finance.GeneralLedger.Posting;
 using Microsoft.Finance.VAT.Setup;
 using Microsoft.Foundation.Reporting;
 using Microsoft.Inventory.Transfer;
+using Microsoft.Peppol.Response;
 using Microsoft.Purchases.Document;
 using Microsoft.Purchases.History;
 using Microsoft.Purchases.Posting;
@@ -477,6 +480,29 @@ codeunit 6103 "E-Document Subscribers"
         PurchaseHeader.Get(PurchaseHeader."Document Type", PurchaseHeader."No.");
     end;
 
+    [EventSubscriber(ObjectType::Table, Database::"Sales Header", 'OnDeleteOnBeforeArchiveSalesDocument', '', false, false)]
+    local procedure OnDeleteOnBeforeArchiveSalesDocumentSalesHeader(var SalesHeader: Record "Sales Header")
+    var
+        EDocument: Record "E-Document";
+        TempEDocImportParameters: Record "E-Doc. Import Parameters";
+        EDocImport: Codeunit "E-Doc. Import";
+        ConfirmDialogMgt: Codeunit "Confirm Management";
+    begin
+        if IsNullGuid(SalesHeader."E-Document Link") then
+            exit;
+
+        if not EDocument.GetBySystemId(SalesHeader."E-Document Link") then
+            exit;
+        if not ConfirmDialogMgt.GetResponseOrDefault(StrSubstNo(DeleteDocumentQst, EDocument."Entry No")) then
+            Error('');
+
+        TempEDocImportParameters."Step to Run / Desired Status" := TempEDocImportParameters."Step to Run / Desired Status"::"Desired E-Document Status";
+        TempEDocImportParameters."Desired E-Document Status" := "Import E-Doc. Proc. Status"::"Draft Ready";
+        EDocImport.ProcessIncomingEDocument(EDocument, TempEDocImportParameters);
+
+        SalesHeader.Get(SalesHeader."Document Type", SalesHeader."No.");
+    end;
+
     [EventSubscriber(ObjectType::Codeunit, Codeunit::"Data Classification Eval. Data", 'OnCreateEvaluationDataOnAfterClassifyTablesToNormal', '', false, false)]
     local procedure ClassifyDataSensitivity()
     var
@@ -652,9 +678,9 @@ codeunit 6103 "E-Document Subscribers"
         EDocument."Document Type" := DocumentType;
         EDocument.Status := Enum::"E-Document Status"::Processed;
         EDocument.Modify(true);
-        
+
         OnAfterUpdateToPostedPurchaseEDocument(EDocument, PostedRecord, PostedDocumentNo, DocumentType);
-        
+
         EDocService := EDocumentLog.GetLastServiceFromLog(EDocument);
         EDocLogHelper.InsertLog(EDocument, EDocService, Enum::"E-Document Service Status"::"Imported Document Created");
     end;
@@ -743,5 +769,28 @@ codeunit 6103 "E-Document Subscribers"
     [IntegrationEvent(false, false)]
     local procedure OnAfterUpdateToPostedPurchaseEDocument(var EDocument: Record "E-Document"; PostedRecord: Variant; PostedDocumentNo: Code[20]; DocumentType: Enum "E-Document Type")
     begin
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Release Sales Document", 'OnAfterReleaseSalesDoc', '', false, false)]
+    local procedure OnAfterReleaseSalesDoc(var SalesHeader: Record "Sales Header"; PreviewMode: Boolean; var LinesWereModified: Boolean; SkipWhseRequestOperations: Boolean)
+    var
+        EDocument: Record "E-Document";
+        EDocMessageMgt: Codeunit "E-Doc. Message Mgt.";
+        ResponseBlob: Codeunit "Temp Blob";
+        SalesHeaderRef: RecordRef;
+        IResponseBuilder: Interface IOrderResponseBuilder;
+    begin
+        if PreviewMode then
+            exit;
+        SalesHeaderRef.GetTable(SalesHeader);
+        EDocument.SetRange("Document Record ID", SalesHeaderRef.RecordId);
+        EDocument.SetRange(Direction, EDocument.Direction::Incoming);
+        if not EDocument.FindLast() then
+            exit;
+        IResponseBuilder := EDocument."Read into Draft Impl.";
+        if not IResponseBuilder.SupportsOrderResponse(EDocument) then
+            exit;
+        IResponseBuilder.BuildOrderResponse(EDocument, "E-Doc. Response Type"::Accepted, ResponseBlob);
+        EDocMessageMgt.CreateMessage(EDocument, "E-Document Message Type"::"PEPPOL Order Response", "E-Document Direction"::Outgoing, "E-Doc. Response Type"::Accepted, ResponseBlob);
     end;
 }

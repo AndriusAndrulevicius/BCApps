@@ -6,12 +6,13 @@ namespace Microsoft.eServices.EDocument.Processing.Import;
 
 using Microsoft.eServices.EDocument;
 using Microsoft.eServices.EDocument.Processing.Interfaces;
+using Microsoft.Peppol.Response;
 using System.Utilities;
 
 /// <summary>
 /// Default implementations for E-Document interfaces.
 /// </summary>
-codeunit 6116 "E-Doc. Unspecified Impl." implements IStructureReceivedEDocument, IEDocumentFinishDraft, IStructuredFormatReader, IEDocFileFormat
+codeunit 6116 "E-Doc. Unspecified Impl." implements IStructureReceivedEDocument, IEDocumentFinishDraft, IStructuredFormatReader, IOrderResponseBuilder, IEDocFileFormat
 {
     Access = Internal;
     InherentEntitlements = X;
@@ -44,6 +45,15 @@ codeunit 6116 "E-Doc. Unspecified Impl." implements IStructureReceivedEDocument,
     procedure View(EDocument: Record "E-Document"; TempBlob: Codeunit "Temp Blob")
     begin
         Error(EDocumentNoReadSpecifiedErr);
+    end;
+
+    procedure SupportsOrderResponse(EDocument: Record "E-Document"): Boolean
+    begin
+        exit(false);
+    end;
+
+    procedure BuildOrderResponse(EDocument: Record "E-Document"; ResponseType: Enum "E-Doc. Response Type"; var TempBlob: Codeunit "Temp Blob")
+    begin
     end;
 
     procedure FileExtension(): Text
